@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Shift</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+            color: white;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .info {
+            margin-bottom: 20px;
+            font-size: 1.2em;
+        }
+
+        .game-wrapper {
+            perspective: 1000px;
+            display: inline-block;
+        }
+
+        #gameCanvas {
+            border: 4px solid white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            background: #2d3748;
+            transition: transform 0.3s ease;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            color: #667eea;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .arrow-btn {
+            font-size: 1.5em;
+            width: 60px;
+            height: 60px;
+            padding: 0;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .level-complete {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            color: #667eea;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+        }
+
+        .level-complete.show {
+            display: block;
+            animation: popIn 0.3s ease;
+        }
+
+        @keyframes popIn {
+            0% {
+                transform: translate(-50%, -50%) scale(0.5);
+                opacity: 0;
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🌀 Gravity Shift</h1>
+        <div class="info">
+            <div>Level: <span id="level">1</span> | Moves: <span id="moves">0</span></div>
+        </div>
+
+        <div class="game-wrapper">
+            <canvas id="gameCanvas" width="500" height="500"></canvas>
+        </div>
+
+        <div class="controls">
+            <button class="arrow-btn" onclick="rotateWorld('left')">←</button>
+            <button class="arrow-btn" onclick="rotateWorld('right')">→</button>
+            <button onclick="resetLevel()">Reset Level</button>
+        </div>
+
+        <div class="instructions">
+            Rotate the world to roll the ball to the goal!<br>
+            Use arrow buttons or keyboard (← →)
+        </div>
+    </div>
+
+    <div class="level-complete" id="levelComplete">
+        <h2>🎉 Level Complete!</h2>
+        <p style="margin: 20px 0;">Great job!</p>
+        <button onclick="nextLevel()">Next Level</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let currentLevel = 1;
+        let moves = 0;
+        let rotation = 0;
+        let ball = { x: 0, y: 0, radius: 15, vx: 0, vy: 0 };
+        let goal = { x: 0, y: 0, radius: 20 };
+        let obstacles = [];
+        let walls = [];
+
+        const gravity = 0.4;
+        const friction = 0.98;
+        const bounce = 0.6;
+
+        const levels = [
+            {
+                ball: { x: 50, y: 50 },
+                goal: { x: 450, y: 450 },
+                obstacles: [
+                    { x: 250, y: 200, width: 200, height: 20 },
+                    { x: 100, y: 350, width: 200, height: 20 }
+                ]
+            },
+            {
+                ball: { x: 50, y: 250 },
+                goal: { x: 450, y: 250 },
+                obstacles: [
+                    { x: 150, y: 100, width: 20, height: 150 },
+                    { x: 330, y: 250, width: 20, height: 150 },
+                    { x: 250, y: 200, width: 100, height: 20 }
+                ]
+            },
+            {
+                ball: { x: 250, y: 50 },
+                goal: { x: 250, y: 450 },
+                obstacles: [
+                    { x: 200, y: 150, width: 100, height: 20 },
+                    { x: 150, y: 250, width: 200, height: 20 },
+                    { x: 200, y: 350, width: 100, height: 20 }
+                ]
+            }
+        ];
+
+        function loadLevel(levelNum) {
+            const level = levels[(levelNum - 1) % levels.length];
+            ball.x = level.ball.x;
+            ball.y = level.ball.y;
+            ball.vx = 0;
+            ball.vy = 0;
+            goal.x = level.goal.x;
+            goal.y = level.goal.y;
+            obstacles = JSON.parse(JSON.stringify(level.obstacles));
+
+            walls = [
+                { x: 0, y: 0, width: canvas.width, height: 10 },
+                { x: 0, y: canvas.height - 10, width: canvas.width, height: 10 },
+                { x: 0, y: 0, width: 10, height: canvas.height },
+                { x: canvas.width - 10, y: 0, width: 10, height: canvas.height }
+            ];
+
+            moves = 0;
+            rotation = 0;
+            updateDisplay();
+        }
+
+        function rotateWorld(direction) {
+            if (direction === 'left') {
+                rotation -= 90;
+            } else {
+                rotation += 90;
+            }
+            moves++;
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            document.getElementById('level').textContent = currentLevel;
+            document.getElementById('moves').textContent = moves;
+        }
+
+        function update() {
+            const rad = (rotation * Math.PI) / 180;
+            const gx = Math.sin(rad) * gravity;
+            const gy = Math.cos(rad) * gravity;
+
+            ball.vx += gx;
+            ball.vy += gy;
+
+            ball.vx *= friction;
+            ball.vy *= friction;
+
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            [...walls, ...obstacles].forEach(rect => {
+                const closestX = Math.max(rect.x, Math.min(ball.x, rect.x + rect.width));
+                const closestY = Math.max(rect.y, Math.min(ball.y, rect.y + rect.height));
+
+                const dx = ball.x - closestX;
+                const dy = ball.y - closestY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < ball.radius) {
+                    const angle = Math.atan2(dy, dx);
+                    ball.x = closestX + Math.cos(angle) * ball.radius;
+                    ball.y = closestY + Math.sin(angle) * ball.radius;
+
+                    const normalX = Math.cos(angle);
+                    const normalY = Math.sin(angle);
+                    const dotProduct = ball.vx * normalX + ball.vy * normalY;
+
+                    ball.vx = (ball.vx - 2 * dotProduct * normalX) * bounce;
+                    ball.vy = (ball.vy - 2 * dotProduct * normalY) * bounce;
+                }
+            });
+
+            const distToGoal = Math.sqrt((ball.x - goal.x) ** 2 + (ball.y - goal.y) ** 2);
+            if (distToGoal < ball.radius + goal.radius) {
+                document.getElementById('levelComplete').classList.add('show');
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#2d3748';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#4a5568';
+            walls.forEach(wall => {
+                ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+            });
+
+            const gradient = ctx.createRadialGradient(goal.x, goal.y, 0, goal.x, goal.y, goal.radius);
+            gradient.addColorStop(0, '#fbbf24');
+            gradient.addColorStop(1, '#f59e0b');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(goal.x, goal.y, goal.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ef4444';
+            obstacles.forEach(obs => {
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            });
+
+            const ballGradient = ctx.createRadialGradient(ball.x - 5, ball.y - 5, 0, ball.x, ball.y, ball.radius);
+            ballGradient.addColorStop(0, '#60a5fa');
+            ballGradient.addColorStop(1, '#3b82f6');
+            ctx.fillStyle = ballGradient;
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function resetLevel() {
+            loadLevel(currentLevel);
+        }
+
+        function nextLevel() {
+            currentLevel++;
+            loadLevel(currentLevel);
+            document.getElementById('levelComplete').classList.remove('show');
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') rotateWorld('left');
+            if (e.key === 'ArrowRight') rotateWorld('right');
+            if (e.key === 'r' || e.key === 'R') resetLevel();
+        });
+
+        loadLevel(1);
+        gameLoop();
+    </script>
+</body>
+
+</html>
